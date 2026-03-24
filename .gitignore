@@ -1,5 +1,7 @@
 venv
 result.xlsx
-tester.txt
+data_in/tester.txt
 .idea/
 __pycache__/
+data_in
+data_out

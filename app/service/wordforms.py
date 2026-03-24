@@ -1,11 +1,13 @@
-from app.repository.wordforms import analysis_wordforms as analysis_wordforms_repo
-from app.repository.wordforms import create_table, checker_format_file
-from fastapi import UploadFile, HTTPException
+from app.repository.wordforms import analyze_wordforms_in_file
+from app.repository.wordforms import create_excel_table, validate_file
+from fastapi import UploadFile
 
-def analysis_wordforms(file: UploadFile):
-    if not checker_format_file(file):
-        raise HTTPException(status_code=400, detail='File format is not supported')
-    stats = analysis_wordforms_repo(file=file)
-    create_table(stats=stats)
+def analysis_wordforms(file: UploadFile) -> dict[str, str]:
+    validate_file(file)
+    stats, cnt_rows = analyze_wordforms_in_file(file=file)
+    file_name = create_excel_table(stats=stats, cnt_rows=cnt_rows)
+    return {
+        'filename': file_name,
+    }
 
 
