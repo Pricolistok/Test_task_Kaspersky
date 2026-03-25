@@ -1,12 +1,15 @@
 import re
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from io import TextIOWrapper
-from fastapi import UploadFile, HTTPException
+from typing import BinaryIO
+
 from pymorphy3 import MorphAnalyzer
 from collections import defaultdict
 from openpyxl import Workbook
+
+from app.repository.queue import UPLOAD_DIR, task_store, queue_files
+from app.repository.utils import ensure_directory_exists
 
 OUTPUT_DIR = Path('data_out')
 
@@ -47,11 +50,11 @@ def update_stats_for_lemma(stats: dict[str, LemmaStats], lemma: str, count: int,
         stats[lemma].lines[line_id] = count
 
 
-def analyze_wordforms_in_file(file: UploadFile) -> tuple[dict[str, LemmaStats], int]:
+def analyze_wordforms_in_file(file: BinaryIO) -> tuple[dict[str, LemmaStats], int]:
     stats: dict[str, LemmaStats] = {}
     cache_words: dict[str, str] = {}
     line_id = 0
-    with TextIOWrapper(file.file, encoding='utf-8') as textfile:
+    with TextIOWrapper(file, encoding='utf-8') as textfile:
         for line in textfile:
             line_cnt = count_lemmas_in_line(line=line, cache_words=cache_words)
             for lemma, count in line_cnt.items():
@@ -59,9 +62,6 @@ def analyze_wordforms_in_file(file: UploadFile) -> tuple[dict[str, LemmaStats], 
             line_id += 1
     return stats, line_id
 
-
-def ensure_directory_exists(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
 
 def format_line_counts(stats_row: dict[int, int], cnt_rows: int) -> str:
     return ','.join((str(stats_row.get(i, 0)) for i in range(cnt_rows)))
@@ -71,7 +71,7 @@ def build_excel_row(lemma: str, total: int, stats_row: dict[int, int], cnt_rows:
     return [lemma, total, format_line_counts(stats_row=stats_row, cnt_rows=cnt_rows)]
 
 
-def create_excel_table(stats: dict[str, LemmaStats], cnt_rows: int) -> str:
+def create_excel_table(stats: dict[str, LemmaStats], cnt_rows: int, filename: str) -> None:
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(title='Wordforms')
     ws.append(['Словоформа', 'Количество во всем документе', 'Количество в каждой строке'])
@@ -82,41 +82,20 @@ def create_excel_table(stats: dict[str, LemmaStats], cnt_rows: int) -> str:
                             stats_row=lemma_stats.lines,
                             cnt_rows=cnt_rows)
         )
-    filename = f'result_{uuid.uuid4()}.xlsx'
+    filename = f'{filename}.xlsx'
     ensure_directory_exists(path=OUTPUT_DIR)
     wb.save(OUTPUT_DIR / filename)
-    return filename
 
 
-def validate_filename(filename: str | None) -> None:
-    if filename is None:
-        raise HTTPException(status_code=400, detail='Invalid filename')
-    if filename == '' or not filename.lower().endswith('.txt'):
-        raise HTTPException(status_code=400, detail='File format is not supported')
-
-
-def validate_not_empty(file: UploadFile) -> None:
-    if file.file.read(1) == b"":
-        file.file.seek(0)
-        raise HTTPException(status_code=400, detail='File is empty')
-    file.file.seek(0)
-
-def validate_content_type(content_type: str | None) -> None:
-    if content_type != 'text/plain':
-        raise HTTPException(status_code=400, detail='Invalid content type file')
-
-
-def validate_encoding(file: UploadFile) -> None:
-    try:
-        file.file.read(2048).decode('utf-8')
-    except UnicodeError:
-        raise HTTPException(400, "File must be UTF-8 encoded")
-    finally:
-        file.file.seek(0)
-
-
-def validate_file(file: UploadFile) -> None:
-    validate_filename(file.filename)
-    validate_content_type(file.content_type)
-    validate_not_empty(file)
-    validate_encoding(file)
+def worker():
+    while True:
+        job = queue_files.get()
+        try:
+            with open(UPLOAD_DIR / f'data_in_{job.task_id}.txt', 'rb') as file:
+                stats, cnt_rows = analyze_wordforms_in_file(file=file)
+                create_excel_table(stats=stats, cnt_rows=cnt_rows, filename=job.task_id)
+                task_store[job.task_id].status = True
+        except Exception:
+            task_store[job.task_id].detail = 'Failed'
+        finally:
+            queue_files.task_done()

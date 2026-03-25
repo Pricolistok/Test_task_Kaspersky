@@ -1,13 +1,20 @@
-from app.repository.wordforms import analyze_wordforms_in_file
-from app.repository.wordforms import create_excel_table, validate_file
-from fastapi import UploadFile
+from threading import Thread
+from app.repository.wordforms import OUTPUT_DIR, worker as worker_repo
+from app.repository.utils import delete_dir
+from app.repository.queue import UPLOAD_DIR
 
-def analysis_wordforms(file: UploadFile) -> dict[str, str]:
-    validate_file(file)
-    stats, cnt_rows = analyze_wordforms_in_file(file=file)
-    file_name = create_excel_table(stats=stats, cnt_rows=cnt_rows)
-    return {
-        'filename': file_name,
-    }
+
+def worker() -> None:
+    worker_repo()
+
+def start_worker() -> None:
+    thread = Thread(target=worker, daemon=True)
+    thread.start()
+
+
+def delete_dirs() -> None:
+    delete_dir(OUTPUT_DIR)
+    delete_dir(UPLOAD_DIR)
+
 
 
