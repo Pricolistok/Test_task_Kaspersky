@@ -5,3 +5,4 @@ data_test/tester.txt
 __pycache__/
 data_in
 data_out
+data_test/*.txt

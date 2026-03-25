@@ -4,6 +4,9 @@ from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
+UPLOAD_DIR = Path('data_in')
+OUTPUT_DIR = Path('data_out')
+
 
 def validate_filename(filename: str | None) -> None:
     if filename is None:
@@ -17,6 +20,7 @@ def validate_not_empty(file: UploadFile) -> None:
         file.file.seek(0)
         raise HTTPException(status_code=400, detail='File is empty')
     file.file.seek(0)
+
 
 def validate_content_type(content_type: str | None) -> None:
     if content_type != 'text/plain':

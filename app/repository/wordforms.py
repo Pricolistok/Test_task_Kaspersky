@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from io import TextIOWrapper
 from typing import BinaryIO
 
@@ -8,10 +7,9 @@ from pymorphy3 import MorphAnalyzer
 from collections import defaultdict
 from openpyxl import Workbook
 
-from app.repository.queue import UPLOAD_DIR, task_store, queue_files
-from app.repository.utils import ensure_directory_exists
+from app.repository.queue import queue_files, update_job
+from app.repository.utils import ensure_directory_exists, OUTPUT_DIR, UPLOAD_DIR
 
-OUTPUT_DIR = Path('data_out')
 
 @dataclass
 class LemmaStats:
@@ -87,15 +85,17 @@ def create_excel_table(stats: dict[str, LemmaStats], cnt_rows: int, filename: st
     wb.save(OUTPUT_DIR / filename)
 
 
-def worker():
+def worker() -> None:
     while True:
         job = queue_files.get()
         try:
             with open(UPLOAD_DIR / f'data_in_{job.task_id}.txt', 'rb') as file:
+                update_job(job, 'processing','Wordforms analysis',)
                 stats, cnt_rows = analyze_wordforms_in_file(file=file)
-                create_excel_table(stats=stats, cnt_rows=cnt_rows, filename=job.task_id)
-                task_store[job.task_id].status = True
-        except Exception:
-            task_store[job.task_id].detail = 'Failed'
+                update_job(job, 'processing', 'Build excel')
+                create_excel_table(stats=stats, cnt_rows=cnt_rows, filename=str(job.task_id))
+                update_job(job, 'done', 'Excel table was completed')
+        except Exception as e:
+            update_job(job, 'failed', str(e))
         finally:
             queue_files.task_done()
